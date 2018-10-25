@@ -4,23 +4,23 @@ import { identity } from 'fp-ts/lib/function'
 import { none, Option } from 'fp-ts/lib/Option'
 import { Task } from 'fp-ts/lib/Task'
 import { Cmd } from './Cmd'
-import { Decoder, mixed } from './Decode'
+import { Decoder } from './Decode'
 import { attempt } from './Task'
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 export interface Request<A> {
   method: Method
-  headers: { [key: string]: string }
+  headers: Record<string, string>
   url: string
-  body?: mixed
+  body?: unknown
   expect: Expect<A>
   timeout: Option<number>
   withCredentials: boolean
 }
 
 export interface Expect<A> {
-  (value: mixed): Either<string, A>
+  (value: unknown): Either<string, A>
 }
 
 export function expectJson<A>(decoder: Decoder<A>): Expect<A> {
@@ -59,7 +59,7 @@ export interface Response<Body> {
     code: number
     message: string
   }
-  headers: { [key: string]: string }
+  headers: Record<string, string>
   body: Body
 }
 
@@ -131,7 +131,7 @@ export function get<A>(url: string, decoder: Decoder<A>): Request<A> {
   }
 }
 
-export function post<A>(url: string, body: mixed, decoder: Decoder<A>): Request<A> {
+export function post<A>(url: string, body: unknown, decoder: Decoder<A>): Request<A> {
   return {
     method: 'POST',
     headers: {},
