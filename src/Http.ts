@@ -1,4 +1,4 @@
-import axios, { AxiosRequestConfig, AxiosResponse } from 'axios'
+import axios, { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios'
 import { Either, left } from 'fp-ts/lib/Either'
 import { identity } from 'fp-ts/lib/function'
 import { none, Option } from 'fp-ts/lib/Option'
@@ -51,6 +51,18 @@ export class BadPayload {
   constructor(readonly value: string, readonly response: Response<string>) {}
 }
 
+/**
+ * A `Request` can fail in a couple ways:
+ * - `BadUrl` means you did not provide a valid URL.
+ * - `Timeout` means it took too long to get a response.
+ * - `NetworkError` means the user turned off their wifi, went in a cave, etc.
+ * - `BadStatus` means you got a response back, but the status code (*) indicates failure.
+ * - `BadPayload` means you got a response back with a nice status code, but the body of the response was something
+ *   unexpected. The `string` in this case is a debugging message that explains what went wrong with your JSON decoder
+ *   or whatever.
+ *
+ * (*) https://www.w3.org/Protocols/rfc2616/rfc2616-sec10.html
+ */
 export type HttpError = BadUrl | Timeout | NetworkError | BadStatus | BadPayload
 
 export interface Response<Body> {
@@ -63,9 +75,9 @@ export interface Response<Body> {
   body: Body
 }
 
-function axiosResponseToResponse(res: AxiosResponse): Response<string> {
+function axiosResponseToResponse<A>(req: Request<A>, res: AxiosResponse): Response<string> {
   return {
-    url: res.config.url!,
+    url: req.url,
     status: {
       code: res.status,
       message: res.statusText
@@ -75,25 +87,23 @@ function axiosResponseToResponse(res: AxiosResponse): Response<string> {
   }
 }
 
-function axiosResponseToEither<A>(res: AxiosResponse, expect: Expect<A>): Either<HttpError, A> {
-  return expect(res.data).mapLeft(errors => new BadPayload(errors, axiosResponseToResponse(res)))
+function axiosResponseToEither<A>(req: Request<A>, res: AxiosResponse): Either<HttpError, A> {
+  return req.expect(res.data).mapLeft(errors => new BadPayload(errors, axiosResponseToResponse(req, res)))
 }
 
-function axiosErrorToEither<A>(e: Error | { response: AxiosResponse }): Either<HttpError, A> {
-  if (e instanceof Error) {
-    if ((e as any).code === 'ECONNABORTED') {
-      return left(new Timeout())
-    } else {
-      return left(new NetworkError(e.message))
+function axiosErrorToEither<A>(req: Request<A>, e: AxiosError): Either<HttpError, A> {
+  if (e.code === 'ECONNABORTED') {
+    return left(new Timeout())
+  } else if (e.response) {
+    const res = e.response
+    switch (res.status) {
+      case 404:
+        return left(new BadUrl(req.url))
+      default:
+        return left(new BadStatus(axiosResponseToResponse(req, res)))
     }
   }
-  const res = e.response
-  switch (res.status) {
-    case 404:
-      return left(new BadUrl(res.config.url!))
-    default:
-      return left(new BadStatus(axiosResponseToResponse(res)))
-  }
+  return left(new NetworkError(e.message))
 }
 
 function getPromiseAxiosResponse(config: AxiosRequestConfig): Promise<AxiosResponse> {
@@ -101,17 +111,18 @@ function getPromiseAxiosResponse(config: AxiosRequestConfig): Promise<AxiosRespo
 }
 
 export function toTask<A>(req: Request<A>): Task<Either<HttpError, A>> {
+  const url = req.url
   return new Task(() =>
     getPromiseAxiosResponse({
       method: req.method,
       headers: req.headers,
-      url: req.url,
+      url,
       data: req.body,
       timeout: req.timeout.fold(undefined, identity),
       withCredentials: req.withCredentials
     })
-      .then(res => axiosResponseToEither(res, req.expect))
-      .catch(e => axiosErrorToEither<A>(e))
+      .then(res => axiosResponseToEither(req, res))
+      .catch(e => axiosErrorToEither<A>(req, e))
   )
 }
 
