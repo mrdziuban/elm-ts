@@ -1,8 +1,6 @@
-import axios, { AxiosRequestConfig, AxiosResponse, AxiosError } from 'axios'
-import { Either, left } from 'fp-ts/lib/Either'
-import { identity } from 'fp-ts/lib/function'
+import { Either, right, left } from 'fp-ts/lib/Either'
 import { none, Option } from 'fp-ts/lib/Option'
-import { Task } from 'fp-ts/lib/Task'
+import { Task, tryCatch } from 'fp-ts/lib/Task'
 import { Cmd } from './Cmd'
 import { Decoder } from './Decode'
 import { attempt } from './Task'
@@ -13,7 +11,7 @@ export interface Request<A> {
   method: Method
   headers: Record<string, string>
   url: string
-  body?: unknown
+  body?: string
   expect: Expect<A>
   timeout: Option<number>
   withCredentials: boolean
@@ -75,55 +73,73 @@ export interface Response<Body> {
   body: Body
 }
 
-function axiosResponseToResponse<A>(req: Request<A>, res: AxiosResponse): Response<string> {
+const include: 'include' = 'include'
+
+const getRequestInit = <A>(req: Request<A>): RequestInit => {
   return {
-    url: req.url,
-    status: {
-      code: res.status,
-      message: res.statusText
-    },
-    headers: res.headers,
-    body: res.request.responseText
+    body: req.body,
+    credentials: req.withCredentials ? include : undefined,
+    headers: req.headers,
+    method: req.method
   }
 }
 
-function axiosResponseToEither<A>(req: Request<A>, res: AxiosResponse): Either<HttpError, A> {
-  return req.expect(res.data).mapLeft(errors => new BadPayload(errors, axiosResponseToResponse(req, res)))
+const applyTimeout = <A>(millis: Option<number>, fa: Promise<A>): Promise<A> => {
+  return millis.fold(
+    fa,
+    millis =>
+      new Promise(function(resolve, reject) {
+        setTimeout(() => reject(new Timeout()), millis)
+        fa.then(resolve, reject)
+      })
+  )
 }
 
-function axiosErrorToEither<A>(req: Request<A>, e: AxiosError): Either<HttpError, A> {
-  if (e.code === 'ECONNABORTED') {
-    return left(new Timeout())
-  } else if (e.response) {
-    const res = e.response
-    switch (res.status) {
-      case 404:
-        return left(new BadUrl(req.url))
-      default:
-        return left(new BadStatus(axiosResponseToResponse(req, res)))
-    }
+const toHeaders = (hs: Headers): Record<string, string> => {
+  const result: Record<string, string> = {}
+  hs.forEach((v: string, k: string) => {
+    result[k] = v
+  })
+  return result
+}
+
+const isBadStatus = (status: number): boolean => status < 200 || status >= 300
+
+const validateStatus = (res: Response<string>): Either<HttpError, Response<string>> => {
+  return isBadStatus(res.status.code)
+    ? left(res.status.code === 404 ? new BadUrl(res.url) : new BadStatus(res))
+    : right(res)
+}
+
+const parseBody = (res: Response<string>): Either<HttpError, unknown> => {
+  try {
+    return right(JSON.parse(res.body))
+  } catch (e) {
+    return left(new BadPayload(`JSON.parse: ${e.message}`, res))
   }
-  return left(new NetworkError(e.message))
 }
 
-function getPromiseAxiosResponse(config: AxiosRequestConfig): Promise<AxiosResponse> {
-  return axios(config)
+const validateBody = <A>(a: unknown, req: Request<A>, res: Response<string>): Either<HttpError, A> => {
+  return req.expect(a).mapLeft(error => new BadPayload(error, res))
 }
 
 export function toTask<A>(req: Request<A>): Task<Either<HttpError, A>> {
   const url = req.url
-  return new Task(() =>
-    getPromiseAxiosResponse({
-      method: req.method,
-      headers: req.headers,
-      url,
-      data: req.body,
-      timeout: req.timeout.fold(undefined, identity),
-      withCredentials: req.withCredentials
-    })
-      .then(res => axiosResponseToEither(req, res))
-      .catch(e => axiosErrorToEither<A>(req, e))
-  )
+  return tryCatch<HttpError, Response<string>>(
+    () =>
+      applyTimeout(req.timeout, fetch(url, getRequestInit(req))).then(res =>
+        res.text().then(body => ({
+          url,
+          status: {
+            code: res.status,
+            message: res.statusText
+          },
+          headers: toHeaders(res.headers),
+          body
+        }))
+      ),
+    (error: unknown) => (error instanceof Timeout ? error : new NetworkError(String(error)))
+  ).map(e => e.chain(res => validateStatus(res).chain(() => parseBody(res).chain(a => validateBody(a, req, res)))))
 }
 
 export function send<A, Msg>(req: Request<A>, f: (e: Either<HttpError, A>) => Msg): Cmd<Msg> {
@@ -142,7 +158,7 @@ export function get<A>(url: string, decoder: Decoder<A>): Request<A> {
   }
 }
 
-export function post<A>(url: string, body: unknown, decoder: Decoder<A>): Request<A> {
+export function post<A>(url: string, body: string, decoder: Decoder<A>): Request<A> {
   return {
     method: 'POST',
     headers: {},
