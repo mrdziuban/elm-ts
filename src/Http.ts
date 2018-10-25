@@ -6,25 +6,24 @@ import { Task } from 'fp-ts/lib/Task'
 import { Cmd } from './Cmd'
 import { Decoder, mixed } from './Decode'
 import { attempt } from './Task'
-import { Time } from './Time'
 
 export type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
-export interface Request<a> {
+export interface Request<A> {
   method: Method
   headers: { [key: string]: string }
   url: string
   body?: mixed
-  expect: Expect<a>
-  timeout: Option<Time>
+  expect: Expect<A>
+  timeout: Option<number>
   withCredentials: boolean
 }
 
-export interface Expect<a> {
-  (value: mixed): Either<string, a>
+export interface Expect<A> {
+  (value: mixed): Either<string, A>
 }
 
-export function expectJson<a>(decoder: Decoder<a>): Expect<a> {
+export function expectJson<A>(decoder: Decoder<A>): Expect<A> {
   return decoder.decode
 }
 
@@ -54,14 +53,14 @@ export class BadPayload {
 
 export type HttpError = BadUrl | Timeout | NetworkError | BadStatus | BadPayload
 
-export interface Response<body> {
+export interface Response<Body> {
   url: string
   status: {
     code: number
     message: string
   }
   headers: { [key: string]: string }
-  body: body
+  body: Body
 }
 
 function axiosResponseToResponse(res: AxiosResponse): Response<string> {
@@ -76,11 +75,11 @@ function axiosResponseToResponse(res: AxiosResponse): Response<string> {
   }
 }
 
-function axiosResponseToEither<a>(res: AxiosResponse, expect: Expect<a>): Either<HttpError, a> {
+function axiosResponseToEither<A>(res: AxiosResponse, expect: Expect<A>): Either<HttpError, A> {
   return expect(res.data).mapLeft(errors => new BadPayload(errors, axiosResponseToResponse(res)))
 }
 
-function axiosErrorToEither<a>(e: Error | { response: AxiosResponse }): Either<HttpError, a> {
+function axiosErrorToEither<A>(e: Error | { response: AxiosResponse }): Either<HttpError, A> {
   if (e instanceof Error) {
     if ((e as any).code === 'ECONNABORTED') {
       return left(new Timeout())
@@ -101,7 +100,7 @@ function getPromiseAxiosResponse(config: AxiosRequestConfig): Promise<AxiosRespo
   return axios(config)
 }
 
-export function toTask<a>(req: Request<a>): Task<Either<HttpError, a>> {
+export function toTask<A>(req: Request<A>): Task<Either<HttpError, A>> {
   return new Task(() =>
     getPromiseAxiosResponse({
       method: req.method,
@@ -112,15 +111,15 @@ export function toTask<a>(req: Request<a>): Task<Either<HttpError, a>> {
       withCredentials: req.withCredentials
     })
       .then(res => axiosResponseToEither(res, req.expect))
-      .catch(e => axiosErrorToEither<a>(e))
+      .catch(e => axiosErrorToEither<A>(e))
   )
 }
 
-export function send<a, msg>(req: Request<a>, f: (e: Either<HttpError, a>) => msg): Cmd<msg> {
+export function send<A, Msg>(req: Request<A>, f: (e: Either<HttpError, A>) => Msg): Cmd<Msg> {
   return attempt(toTask(req), f)
 }
 
-export function get<a>(url: string, decoder: Decoder<a>): Request<a> {
+export function get<A>(url: string, decoder: Decoder<A>): Request<A> {
   return {
     method: 'GET',
     headers: {},
@@ -132,7 +131,7 @@ export function get<a>(url: string, decoder: Decoder<a>): Request<a> {
   }
 }
 
-export function post<a>(url: string, body: mixed, decoder: Decoder<a>): Request<a> {
+export function post<A>(url: string, body: mixed, decoder: Decoder<A>): Request<A> {
   return {
     method: 'POST',
     headers: {},

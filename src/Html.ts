@@ -4,43 +4,43 @@ import { Cmd } from './Cmd'
 import * as platform from './Platform'
 import { none, Sub } from './Sub'
 
-export interface Html<dom, msg> {
-  (dispatch: platform.Dispatch<msg>): dom
+export interface Html<Dom, Msg> {
+  (dispatch: platform.Dispatch<Msg>): Dom
 }
 
-export interface Renderer<dom> {
-  (dom: dom): void
+export interface Renderer<Dom> {
+  (dom: Dom): void
 }
 
-export function map<dom, a, msg>(ha: Html<dom, a>, f: (a: a) => msg): Html<dom, msg> {
+export function map<Dom, A, Msg>(ha: Html<Dom, A>, f: (a: A) => Msg): Html<Dom, Msg> {
   return dispatch => ha(a => dispatch(f(a)))
 }
 
-export interface Program<model, msg, dom> extends platform.Program<model, msg> {
-  html$: Observable<Html<dom, msg>>
+export interface Program<Model, Msg, Dom> extends platform.Program<Model, Msg> {
+  html$: Observable<Html<Dom, Msg>>
 }
 
-export function program<model, msg, dom>(
-  init: [model, Cmd<msg>],
-  update: (msg: msg, model: model) => [model, Cmd<msg>],
-  view: (model: model) => Html<dom, msg>,
-  subscriptions: (model: model) => Sub<msg> = () => none
-): Program<model, msg, dom> {
+export function program<Model, Msg, Dom>(
+  init: [Model, Cmd<Msg>],
+  update: (msg: Msg, model: Model) => [Model, Cmd<Msg>],
+  view: (model: Model) => Html<Dom, Msg>,
+  subscriptions: (model: Model) => Sub<Msg> = () => none
+): Program<Model, Msg, Dom> {
   const { dispatch, cmd$, sub$, model$ } = platform.program(init, update, subscriptions)
   const html$ = model$.pipe(rxjsMap(view))
   return { dispatch, cmd$, sub$, model$, html$ }
 }
 
-export function programWithFlags<flags, model, msg, dom>(
-  init: (flags: flags) => [model, Cmd<msg>],
-  update: (msg: msg, model: model) => [model, Cmd<msg>],
-  view: (model: model) => Html<dom, msg>,
-  subscriptions?: (model: model) => Sub<msg>
-): (flags: flags) => Program<model, msg, dom> {
+export function programWithFlags<Flags, Model, Msg, Dom>(
+  init: (flags: Flags) => [Model, Cmd<Msg>],
+  update: (msg: Msg, model: Model) => [Model, Cmd<Msg>],
+  view: (model: Model) => Html<Dom, Msg>,
+  subscriptions?: (model: Model) => Sub<Msg>
+): (flags: Flags) => Program<Model, Msg, Dom> {
   return flags => program(init(flags), update, view, subscriptions)
 }
 
-export function run<model, msg, dom>(program: Program<model, msg, dom>, renderer: Renderer<dom>): Observable<model> {
+export function run<Model, Msg, Dom>(program: Program<Model, Msg, Dom>, renderer: Renderer<Dom>): Observable<Model> {
   const { dispatch, html$ } = program
   html$.subscribe(html => renderer(html(dispatch)))
   return platform.run(program)

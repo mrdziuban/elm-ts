@@ -3,13 +3,13 @@ import { Task } from 'fp-ts/lib/Task'
 import { empty, merge, Observable } from 'rxjs'
 import { map as rxjsMap } from 'rxjs/operators'
 
-export interface Cmd<msg> extends Observable<Task<Option<msg>>> {}
+export interface Cmd<Msg> extends Observable<Task<Option<Msg>>> {}
 
-export function map<a, msg>(cmd: Cmd<a>, f: (a: a) => msg): Cmd<msg> {
+export function map<A, Msg>(cmd: Cmd<A>, f: (a: A) => Msg): Cmd<Msg> {
   return cmd.pipe(rxjsMap(task => task.map(option => option.map(f))))
 }
 
-export function batch<msg>(arr: Array<Cmd<msg>>): Cmd<msg> {
+export function batch<Msg>(arr: Array<Cmd<Msg>>): Cmd<Msg> {
   return merge(...arr)
 }
 

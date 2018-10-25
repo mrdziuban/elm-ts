@@ -4,21 +4,21 @@ import { failure } from 'io-ts/lib/PathReporter'
 
 export type mixed = mixed
 
-export interface Decoder<a> {
-  decode: (value: mixed) => Either<string, a>
+export interface Decoder<A> {
+  decode: (value: mixed) => Either<string, A>
 }
 
-export function decodeJSON<a>(decoder: Decoder<a>, value: mixed): Either<string, a> {
+export function decodeJSON<A>(decoder: Decoder<A>, value: mixed): Either<string, A> {
   return decoder.decode(value)
 }
 
-export function map<a, b>(fa: Decoder<a>, f: (a: a) => b): Decoder<b> {
+export function map<A, B>(fa: Decoder<A>, f: (a: A) => B): Decoder<B> {
   return {
     decode: value => fa.decode(value).map(f)
   }
 }
 
-export function fromType<a>(type: Type<a, any, mixed>): Decoder<a> {
+export function fromType<A>(type: Type<A, any, mixed>): Decoder<A> {
   return {
     decode: value => type.decode(value).mapLeft(errors => failure(errors).join('\n'))
   }

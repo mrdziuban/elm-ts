@@ -21,7 +21,7 @@ history.listen(location => {
   location$.next(location)
 })
 
-export function push<msg>(url: string): Cmd<msg> {
+export function push<Msg>(url: string): Cmd<Msg> {
   return of(
     new Task(() => {
       history.push(url)
@@ -30,24 +30,24 @@ export function push<msg>(url: string): Cmd<msg> {
   )
 }
 
-export function program<model, msg, dom>(
-  locationToMessage: (location: Location) => msg,
-  init: (location: Location) => [model, Cmd<msg>],
-  update: (msg: msg, model: model) => [model, Cmd<msg>],
-  view: (model: model) => html.Html<dom, msg>,
-  subscriptions: (model: model) => Sub<msg> = () => none
-): html.Program<model, msg, dom> {
+export function program<Model, Msg, Dom>(
+  locationToMessage: (location: Location) => Msg,
+  init: (location: Location) => [Model, Cmd<Msg>],
+  update: (msg: Msg, model: Model) => [Model, Cmd<Msg>],
+  view: (model: Model) => html.Html<Dom, Msg>,
+  subscriptions: (model: Model) => Sub<Msg> = () => none
+): html.Program<Model, Msg, Dom> {
   const onChangeLocation$ = location$.pipe(map(location => locationToMessage(location)))
-  const subs = (model: model): Sub<msg> => batch([subscriptions(model), onChangeLocation$])
+  const subs = (model: Model): Sub<Msg> => batch([subscriptions(model), onChangeLocation$])
   return html.program(init(getLocation()), update, view, subs)
 }
 
-export function programWithFlags<flags, model, msg, dom>(
-  locationToMessage: (location: Location) => msg,
-  init: (flags: flags) => (location: Location) => [model, Cmd<msg>],
-  update: (msg: msg, model: model) => [model, Cmd<msg>],
-  view: (model: model) => html.Html<dom, msg>,
-  subscriptions: (model: model) => Sub<msg> = () => none
-): (flags: flags) => html.Program<model, msg, dom> {
+export function programWithFlags<Flags, Model, Msg, Dom>(
+  locationToMessage: (location: Location) => Msg,
+  init: (flags: Flags) => (location: Location) => [Model, Cmd<Msg>],
+  update: (msg: Msg, model: Model) => [Model, Cmd<Msg>],
+  view: (model: Model) => html.Html<Dom, Msg>,
+  subscriptions: (model: Model) => Sub<Msg> = () => none
+): (flags: Flags) => html.Program<Model, Msg, Dom> {
   return flags => program(locationToMessage, init(flags), update, view, subscriptions)
 }
